@@ -31,13 +31,7 @@ def count_tokens(text):
     return len(enc.encode(text))
 
 # chat.txt format
-# 9/2/22, 19:37 - Gilles created group "Les instagrammeuses"
-# 9/2/22, 19:37 - You were added
-# 8/22/23, 18:26 - Mathieu . Jc: <Media omitted>
-# 8/22/23, 18:26 - Mathieu . Jc: 😆
-# 8/23/23, 12:50 - +33 6 78 52 49 66: J aime trop les bretons 😆
-# 8/23/23, 16:48 - AurelienS: <Media omitted>
-# 8/23/23, 16:49 - AurelienS: 39.5 pas mal
+
 
 # Regex pour détecter début de message WhatsApp
 pattern = re.compile(r'^(\d{1,2}/\d{1,2}/\d{2,4}), (\d{1,2}:\d{2}) - ([^:]+): (.+)')
