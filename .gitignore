@@ -1,0 +1,74 @@
+# === DONNÉES SENSIBLES ===
+.env
+chat.txt
+*.txt
+*.zip
+
+# === DONNÉES PERSONNELLES ET ANALYSES ===
+by_authors/
+figures/analyses_ia/
+figures/heatmaps_par_auteur/
+
+# === FICHIERS GÉNÉRÉS ===
+figures/*.png
+figures/*.jpg
+figures/*.jpeg
+figures/*.svg
+
+# === PYTHON ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# === ENVIRONNEMENTS VIRTUELS ===
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# === SYSTÈME ===
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# === LOGS ===
+*.log
+logs/
+
+# === TEMPORAIRES ===
+*.tmp
+*.temp
+*.bak
+*.backup
