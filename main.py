@@ -77,34 +77,21 @@ with open(INPUT_FILE, "r", encoding="utf-8") as f:
             if all_messages:
                 all_messages[-1]['message'] += " " + line
 
-# === Étape 2 : Crée les chunks et les fichiers ===
+# === Étape 2 : Crée les fichiers par auteur (un seul fichier par auteur, plus de chunks) ===
 Path(OUTPUT_DIR).mkdir(exist_ok=True)
 
 for author, messages in user_messages.items():
     author_dir = Path(OUTPUT_DIR) / author.replace(" ", "_")
     author_dir.mkdir(parents=True, exist_ok=True)
+    filename = author_dir / "all_messages.txt"
+    # Find all messages for this author in all_messages (with date/time)
+    author_msgs = [m for m in all_messages if m['author'] == author]
+    with open(filename, "w", encoding="utf-8") as out:
+        for m in author_msgs:
+            # Format: [YYYY-MM-DD HH:MM] message
+            out.write(f"[{m['date']} {m['time']}] {m['message']}\n")
 
-    # Découpage intelligent par tokens
-    chunks = []
-    current_chunk = []
-    current_tokens = 0
-    for msg in messages:
-        msg_tokens = count_tokens(msg)
-        if current_tokens + msg_tokens > CHUNK_TOKEN_LIMIT and current_chunk:
-            chunks.append("\n".join(current_chunk))
-            current_chunk = []
-            current_tokens = 0
-        current_chunk.append(msg)
-        current_tokens += msg_tokens
-    if current_chunk:
-        chunks.append("\n".join(current_chunk))
-
-    for idx, chunk in enumerate(chunks, 1):
-        filename = author_dir / f"chunk_{idx:03}.txt"
-        with open(filename, "w", encoding="utf-8") as out:
-            out.write(chunk)
-
-print("✅ Chunks générés dans le dossier 'chunks/' (par tokens)")
+print("✅ Fichiers générés dans le dossier 'by_authors/' (un fichier par auteur)")
 
 # === Étape 3 : Statistiques de base avec pandas ===
 df = pd.DataFrame(all_messages)
@@ -359,72 +346,113 @@ except ImportError:
     print("⚠️  Librairie Anthropic non installée. Installez avec: pip install anthropic")
     HAS_AI_LIBS = False
 
+def split_text_into_segments(text, max_chars):
+    return [text[i:i+max_chars] for i in range(0, len(text), max_chars)]
+
 if HAS_AI_LIBS:
     # Configuration de l'API key Anthropic (depuis le fichier .env)
     anthropic_api_key = os.getenv('ANTHROPIC_API_KEY')
 
     if anthropic_api_key:
         anthropic_client = Anthropic(api_key=anthropic_api_key)
-        print("✅ Anthropic configuré (Claude Sonnet 3.5)")
+        print("✅ Anthropic configuré (Claude Haiku 3.5)")
     else:
         print("⚠️  ANTHROPIC_API_KEY non trouvée dans le fichier .env")
 
-    # Fonction d'analyse avec Anthropic (Claude Sonnet 3.5 - QUALITÉ PREMIUM 🏆)
-    def analyze_with_anthropic(text, author, analysis_type="general", model_name="sonnet"):
+    # Choix du modèle selon la qualité demandée
+    model_configs = {
+        "haiku": {"model": "claude-3-5-haiku-20241022", "max_tokens": 400, "max_chars": 8000},
+        "sonnet": {"model": "claude-3-5-sonnet-20241022", "max_tokens": 800, "max_chars": 15000},  # QUALITÉ PREMIUM
+        "opus": {"model": "claude-3-opus-20240229", "max_tokens": 1000, "max_chars": 20000}
+    }
+
+    # Catégories fun, croustillantes et clivantes à garder
+    fun_analysis_types = [
+        "sarcasm_meter",
+        "clash_detector",
+        "meme_potential",
+        "drama_queen",
+        "ai_sucker",
+        "political_fun_scale"
+    ]
+
+    def analyze_with_anthropic_multi(text, author, analysis_types=None, model_name="haiku", batch_info=None):
         if not anthropic_api_key:
             return None
-
-        prompts = {
-            "sentiment": f"Analyse le sentiment de {author}. Score 1-10 (1=négatif, 10=positif) + analyse détaillée des émotions dominantes et nuances psychologiques.",
-            "topics": f"Top 5 sujets principaux de {author}. Pour chaque sujet: titre, fréquence, contexte, et exemples de messages représentatifs.",
-            "style": f"Style de communication de {author}: personnalité détaillée, registre de langue, tics linguistiques, expressions favorites, évolution dans le temps.",
-            "summary": f"Portrait complet de {author}: personnalité, rôle dans le groupe, relations avec les autres, évolution, anecdotes marquantes.",
-            "political": f"🌶️ ANALYSE POLITIQUE APPROFONDIE de {author}: Orientation politique (gauche/droite/centre), positions sur immigration, économie, écologie, société. Cite des messages précis révélateurs de ses convictions.",
-            "controversial": f"🔥 CONTENU CLIVANT ET POLÉMIQUE de {author}: Débats houleux, prises de position controversées, conflits, sujets sensibles. Analyse le niveau de provocation et cite les messages les plus épicés.",
-            "humor": f"😂 ANALYSE HUMOUR COMPLÈTE de {author}: Type d'humour (noir, absurde, sarcastique, potache), niveau de politiquement incorrect, meilleures vannes, réactions du groupe à ses blagues.",
-            "secrets": f"🕵️ RÉVÉLATIONS ET RAGOTS de {author}: Confessions personnelles, secrets révélés, anecdotes croustillantes, indiscretions, vie privée dévoilée dans le groupe."
-        }
-
-        # Choix du modèle selon la qualité demandée
-        model_configs = {
-            "haiku": {"model": "claude-3-5-haiku-20241022", "max_tokens": 400, "max_chars": 8000},
-            "sonnet": {"model": "claude-3-5-sonnet-20241022", "max_tokens": 800, "max_chars": 15000},  # QUALITÉ PREMIUM
-            "opus": {"model": "claude-3-opus-20240229", "max_tokens": 1000, "max_chars": 20000}
-        }
-
-        config = model_configs.get(model_name, model_configs["sonnet"])
-
+        if analysis_types is None:
+            analysis_types = fun_analysis_types
+        config = model_configs.get(model_name, model_configs["haiku"])
+        # Prompt allégé et contextuel
+        prompt = (
+            f"Contexte : Ceci est une conversation privée entre amis proches, tous consentants et habitués à l'humour, la vanne et le sarcasme. "
+            f"Le but est de faire une analyse fun, croustillante et clivante, dans l'esprit d'un roast amical, sans jamais être méchant gratuitement.\n\n"
+            f"Pour {author}, fais une analyse rapide sur ces points :\n"
+            "- Niveau de sarcasme et d'humour (avec exemples)\n"
+            "- Style de clash ou de vanne (avec exemples)\n"
+            "- Potentiel de meme (messages ou situations à transformer en meme)\n"
+            "- Moments de drama queen (exagérations, réactions épiques)\n"
+            "- Score AI Sucker (essaie-t-il de piéger l'IA ?)\n"
+            "- Orientation politique sur l'échelle fun (de communiste extrémiste à FN master, avec justification marrante)\n"
+            "- Propose un surnom fun qui résume son style dans le groupe\n"
+            "- Donne un score sur 10 pour chaque catégorie\n"
+            "- Conclus par une phrase punchy et bienveillante\n"
+        )
+        if batch_info:
+            prompt += f"\n[Analyse du lot {batch_info['current']} sur {batch_info['total']} pour {author}. Ce lot n'est qu'une partie de la conversation. Analyse ce lot précisément, mais ne conclus pas sur l'ensemble.]"
         try:
             response = anthropic_client.messages.create(
                 model=config["model"],
                 max_tokens=config["max_tokens"],
                 messages=[
-                    {"role": "user", "content": f"{prompts.get(analysis_type, prompts['summary'])}\n\nMessages de {author}:\n{text[:config['max_chars']]}"}
+                    {"role": "user", "content": f"{prompt}\n\nMessages de {author} :\n{text[:config['max_chars']]}"}
                 ]
             )
             return response.content[0].text
         except Exception as e:
-            print(f"Erreur Anthropic pour {author}: {e}")
+            print(f"Erreur Anthropic (multi) pour {author}: {e}")
             return None
 
-    # Fonction principale d'analyse IA (QUALITÉ PREMIUM 🏆)
+    def aggregate_batches_with_anthropic_multi(batch_analyses, author, analysis_types=None, model_name="haiku"):
+        if analysis_types is None:
+            analysis_types = fun_analysis_types
+        config = model_configs.get(model_name, model_configs["haiku"])
+        aggregation_prompt = (
+            f"Voici les analyses de tous les lots de messages de {author} pour les catégories fun suivantes : {', '.join(analysis_types)}.\n"
+            "Pour chaque catégorie, synthétise les résultats de tous les lots, donne un score sur 10 (même si tu dois l'estimer), et fais une synthèse fun, croustillante et clivante.\n"
+            "À la fin, propose un surnom fun, et calcule un score final 'AI Sucker' sur 100 basé sur l'ensemble des catégories, en expliquant comment tu l'as calculé.\n"
+            "Rappelle que c'est un jeu entre amis consentants. Sois drôle, créatif, et adapte-toi à l'esprit du groupe (humour, clash, etc).\n"
+            "Voici les analyses par lot :\n\n"
+            + "\n\n---\n\n".join(batch_analyses)
+        )
+        try:
+            response = anthropic_client.messages.create(
+                model=config["model"],
+                max_tokens=config["max_tokens"],
+                messages=[
+                    {"role": "user", "content": aggregation_prompt[:config['max_chars']]}
+                ]
+            )
+            return response.content[0].text
+        except Exception as e:
+            print(f"Erreur Agrégation Anthropic (multi) pour {author}: {e}")
+            return None
+
     def run_ai_analysis():
         if not anthropic_api_key:
             print("❌ ANTHROPIC_API_KEY non configurée. Analyse IA ignorée.")
             return
 
-        print("🏆 QUALITÉ PREMIUM ACTIVÉE - Claude Sonnet 3.5")
-        print("🔥 Analyse approfondie du contenu politique, clivant et croustillant")
+        print("⚡ MODE ÉCONOMIQUE ACTIVÉ - Claude Haiku 3.5")
+        print("🔥 Analyse fun et rapide du contenu du groupe")
         print("📊 Analyse du TOP 10 des participants avec TOUTE leur data")
 
         # Créer le dossier de résultats IA
         AI_RESULTS_DIR = os.path.join(FIGURES_DIR, 'analyses_ia')
         os.makedirs(AI_RESULTS_DIR, exist_ok=True)
 
-        # Configuration des modèles disponibles
+        # Utiliser uniquement le modèle haiku pour les tests
         models_to_test = [
-            {"name": "sonnet", "display": "Claude Sonnet 3.5", "emoji": "🏆"},
-            # {"name": "haiku", "display": "Claude Haiku 3.5", "emoji": "⚡"},  # Optionnel pour comparaison
+            {"name": "haiku", "display": "Claude Haiku 3.5", "emoji": "⚡"},
         ]
 
         for model_config in models_to_test:
@@ -434,61 +462,63 @@ if HAS_AI_LIBS:
 
             print(f"\n{model_emoji} === ANALYSE AVEC {model_display.upper()} ===")
 
-            # Analyser le TOP 10 des auteurs
-            for author in top_authors.head(10).index:
+            # Config du modèle (une seule fois)
+            config = model_configs.get(model_name, model_configs["haiku"])
+
+            # Analyser le TOP 5 des auteurs ayant le plus de messages, en commençant par le 5e
+            top5_authors = stats['nb_messages'].sort_values(ascending=False).head(5)[::-1].index
+            total_authors = len(top5_authors)
+            for author_idx, author in enumerate(top5_authors, 1):
+                print(f"\nAuteur {author_idx}/{total_authors} : {author} ({int(100*author_idx/total_authors)}%)")
                 print(f"🔍 Analyse COMPLÈTE de {author} avec {model_display}...")
 
-                # Lire les chunks de cet auteur
+                # Lire le fichier complet de cet auteur
                 author_dir = Path(OUTPUT_DIR) / author.replace(" ", "_")
-                if not author_dir.exists():
+                author_file = author_dir / "all_messages.txt"
+                if not author_file.exists():
                     continue
 
-                # Combiner TOUS les chunks de cet auteur
-                author_text = ""
-                chunk_files = sorted(author_dir.glob("chunk_*.txt"))
-                for chunk_file in chunk_files:
-                    with open(chunk_file, 'r', encoding='utf-8') as f:
-                        chunk_content = f.read()
-                        author_text += chunk_content + "\n"
+                with open(author_file, 'r', encoding='utf-8') as f:
+                    author_text = f.read()
 
                 if len(author_text.strip()) == 0:
                     continue
 
                 print(f"  📝 {len(author_text)} caractères analysés pour {author}")
 
-                # Analyses COMPLÈTES avec tous les types
-                analyses = {}
-                analysis_types = ["sentiment", "topics", "style", "summary", "political", "controversial", "humor", "secrets"]
-
-                for analysis_type in analysis_types:
-                    print(f"  🔍 {analysis_type}...")
-                    result = analyze_with_anthropic(author_text, author, analysis_type, model_name)
+                analysis_types = fun_analysis_types
+                segments = split_text_into_segments(author_text, config['max_chars'])
+                total_segments = len(segments)
+                batch_analyses = []
+                for idx, segment in enumerate(segments):
+                    percent = int(100 * (idx+1) / total_segments)
+                    print(f"    [{author}] Segment {idx+1}/{total_segments} ({percent}%) en cours...")
+                    batch_info = {'current': idx+1, 'total': total_segments}
+                    result = analyze_with_anthropic_multi(segment, author, analysis_types, model_name, batch_info)
                     if result:
-                        analyses[analysis_type] = result
+                        batch_analyses.append(result)
+                if batch_analyses:
+                    final_result = aggregate_batches_with_anthropic_multi(batch_analyses, author, analysis_types, model_name)
+                else:
+                    final_result = None
 
                 # Sauvegarder les résultats avec le nom du modèle
-                if analyses:
+                if final_result:
                     safe_author = author.replace(' ', '_').replace('.', '_')
-                    filename = f"{safe_author}_{model_name}_PREMIUM_analysis.txt"
+                    filename = f"{safe_author}_{model_name}_ECO_analysis.txt"
 
                     with open(os.path.join(AI_RESULTS_DIR, filename), 'w', encoding='utf-8') as f:
-                        f.write(f"{model_emoji} === ANALYSE PREMIUM de {author} ({model_display}) ===\n\n")
+                        f.write(f"{model_emoji} === ANALYSE ÉCONOMIQUE de {author} ({model_display}) ===\n\n")
                         f.write(f"📊 Données analysées: {len(author_text):,} caractères\n")
-                        f.write(f"📁 Chunks traités: {len(chunk_files)}\n")
                         f.write(f"🤖 Modèle utilisé: {model_display}\n\n")
+                        f.write(final_result)
 
-                        for analysis_type, result in analyses.items():
-                            emoji_map = {
-                                "sentiment": "😊", "topics": "📋", "style": "✍️", "summary": "📝",
-                                "political": "🏛️", "controversial": "🔥", "humor": "😂", "secrets": "🕵️"
-                            }
-                            emoji = emoji_map.get(analysis_type, "📌")
-                            f.write(f"{emoji} ## {analysis_type.upper()}\n{result}\n\n")
+                print(f"[OK] Analyse terminée pour {author} ({author_idx}/{total_authors})\n")
 
-        print("✅ Analyse PREMIUM terminée ! Résultats dans figures/analyses_ia/")
-        print("🏆 Qualité supérieure avec Claude Sonnet 3.5")
+        print("✅ Analyse ÉCONOMIQUE terminée ! Résultats dans figures/analyses_ia/")
+        print("⚡ Modèle économique utilisé : Claude Haiku 3.5")
         print("🌶️ Contenu politique, clivant et croustillant détecté en détail !")
-        print("💰 Coût estimé: ~$1-2 (analyse premium TOP 10)")
+        print("💸 Coût minimal pour l'analyse TOP 10 !")
 
     # Lancer l'analyse IA automatiquement si configurée
     if anthropic_api_key and len(anthropic_api_key) > 20:  # Clé API valide (plus de 20 caractères)
