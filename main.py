@@ -373,7 +373,8 @@ if HAS_AI_LIBS:
         "meme_potential",
         "drama_queen",
         "ai_sucker",
-        "political_fun_scale"
+        "political_fun_scale",
+        "bullshit_meter"
     ]
 
     def analyze_with_anthropic_multi(text, author, analysis_types=None, model_name="haiku", batch_info=None):
@@ -393,6 +394,7 @@ if HAS_AI_LIBS:
             "- Moments de drama queen (exagérations, réactions épiques)\n"
             "- Score AI Sucker (essaie-t-il de piéger l'IA ?)\n"
             "- Orientation politique sur l'échelle fun (de communiste extrémiste à FN master, avec justification marrante)\n"
+            "- Taux de mensonge, bullshit ou fakenews dans ses propos (avec exemples drôles ou exagérés)\n"
             "- Propose un surnom fun qui résume son style dans le groupe\n"
             "- Donne un score sur 10 pour chaque catégorie\n"
             "- Conclus par une phrase punchy et bienveillante\n"
@@ -418,7 +420,10 @@ if HAS_AI_LIBS:
         config = model_configs.get(model_name, model_configs["haiku"])
         aggregation_prompt = (
             f"Voici les analyses de tous les lots de messages de {author} pour les catégories fun suivantes : {', '.join(analysis_types)}.\n"
-            "Pour chaque catégorie, synthétise les résultats de tous les lots, donne un score sur 10 (même si tu dois l'estimer), et fais une synthèse fun, croustillante et clivante.\n"
+            "Pour chaque catégorie :\n"
+            "- Donne 5 bullet points synthétiques (faits marquants, exemples, punchlines, etc)\n"
+            "- Puis rédige un paragraphe de 4 à 5 lignes qui explique en détail la note sur 10, avec des exemples, des nuances, et une vraie interprétation du style ou du comportement.\n"
+            "Sois fun, croustillant, mais aussi analytique et nuancé.\n"
             "À la fin, propose un surnom fun, et calcule un score final 'AI Sucker' sur 100 basé sur l'ensemble des catégories, en expliquant comment tu l'as calculé.\n"
             "Rappelle que c'est un jeu entre amis consentants. Sois drôle, créatif, et adapte-toi à l'esprit du groupe (humour, clash, etc).\n"
             "Voici les analyses par lot :\n\n"
@@ -462,8 +467,46 @@ if HAS_AI_LIBS:
 
             print(f"\n{model_emoji} === ANALYSE AVEC {model_display.upper()} ===")
 
-            # Config du modèle (une seule fois)
-            config = model_configs.get(model_name, model_configs["haiku"])
+            # MODE TEST : n'analyser que 5 chunks de Gis
+            TEST_GIS = True
+            if TEST_GIS:
+                test_author = 'Gis'
+                print(f"[MODE TEST] Analyse des 5 premiers segments de {test_author}")
+                author_dir = Path(OUTPUT_DIR) / test_author.replace(" ", "_")
+                author_file = author_dir / "all_messages.txt"
+                if not author_file.exists():
+                    print(f"Fichier non trouvé pour {test_author}")
+                    return
+                with open(author_file, 'r', encoding='utf-8') as f:
+                    author_text = f.read()
+                if len(author_text.strip()) == 0:
+                    print(f"Aucun texte pour {test_author}")
+                    return
+                config = model_configs.get(model_name, model_configs["haiku"])
+                segments = split_text_into_segments(author_text, config['max_chars'])
+                total_segments = min(5, len(segments))
+                batch_analyses = []
+                for idx, segment in enumerate(segments[:5]):
+                    percent = int(100 * (idx+1) / total_segments)
+                    print(f"    [{test_author}] Segment {idx+1}/{total_segments} ({percent}%) en cours...")
+                    batch_info = {'current': idx+1, 'total': total_segments}
+                    result = analyze_with_anthropic_multi(segment, test_author, fun_analysis_types, model_name, batch_info)
+                    if result:
+                        batch_analyses.append(result)
+                if batch_analyses:
+                    final_result = aggregate_batches_with_anthropic_multi(batch_analyses, test_author, fun_analysis_types, model_name)
+                else:
+                    final_result = None
+                if final_result:
+                    safe_author = test_author.replace(' ', '_').replace('.', '_')
+                    filename = f"{safe_author}_{model_name}_ECO_analysis_TEST.txt"
+                    with open(os.path.join(AI_RESULTS_DIR, filename), 'w', encoding='utf-8') as f:
+                        f.write(f"{model_emoji} === ANALYSE TEST de {test_author} ({model_display}) ===\n\n")
+                        f.write(f"📊 Données analysées: {len(author_text):,} caractères\n")
+                        f.write(f"🤖 Modèle utilisé: {model_display}\n\n")
+                        f.write(final_result)
+                print(f"[OK] Analyse TEST terminée pour {test_author}\n")
+                return
 
             # Analyser le TOP 5 des auteurs ayant le plus de messages, en commençant par le 5e
             top5_authors = stats['nb_messages'].sort_values(ascending=False).head(5)[::-1].index
